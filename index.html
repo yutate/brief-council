@@ -73,8 +73,14 @@
     .strategy { cursor:pointer; transition:.18s ease; }
     .strategy:hover, .strategy.selected { transform:translateY(-2px); border-color:#5c6878; }
     .strategy.selected { outline:2px solid var(--accent); }
+    .strategy.wildcard { border-color:rgba(230,0,18,.4); }
     .strategy .num { font-size:12px; color:var(--accent); font-weight:800; }
     .strategy ul { color:var(--muted); padding-left:18px; line-height:1.6; }
+    .role-badge { display:inline-block; font-size:10px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; padding:3px 9px; border-radius:999px; margin-bottom:10px; }
+    .role-badge.orthodox { background:rgba(154,164,178,.15); color:var(--muted); }
+    .role-badge.edge { background:rgba(244,201,93,.15); color:var(--warn); }
+    .role-badge.wildcard { background:rgba(230,0,18,.15); color:var(--accent); }
+    .pushback-chip { margin-top:10px; display:inline-flex; align-items:center; font-size:11px; font-weight:700; color:var(--bad); background:rgba(255,122,122,.12); border-radius:999px; padding:4px 9px; }
     .council { display:grid; grid-template-columns:repeat(5,1fr); gap:14px; }
     .persona { min-height:220px; }
     .persona .icon { width:36px; height:36px; border-radius:10px; display:grid; place-items:center; background:var(--panel-2); margin-bottom:12px; font-size:11px; font-weight:800; }
@@ -438,14 +444,19 @@
   });
 
   // ---------- Step 3: strategic choices ----------
+  const ROLE_META = {
+    '王道':      { cls:'orthodox', label:'王道 / Orthodox' },
+    'エッジ':     { cls:'edge',     label:'エッジ / Edge' },
+    'ワイルドカード': { cls:'wildcard', label:'ワイルドカード / Reframe' }
+  };
   async function generateStrategies(){
     const answers = [0,1,2].map(i=>{
       const sel = document.querySelector(`#diagQuestions select[data-qindex="${i}"]`);
       return sel ? sel.value : '';
     });
     const q = state.diagnosis.questions;
-    const sys = 'あなたは経験豊富なマーケティング戦略ディレクターです。同じ課題に対して、互いに明確に描き分けられた複数の戦略的切り口を提示します。出力は必ず有効なJSONのみとし、説明文やバッククォートは一切含めないでください。';
-    const user = `プロジェクトの背景:\n${contextBlock()}\n\n入力内容:\n${val('rawInput')}\n\n診断結果のスコア: ${state.diagnosis.score}\n主な診断内容: ${state.diagnosis.findings.map(f=>f.title+'：'+f.desc).join(' / ')}\n\nAIの3つの問いへの回答:\n1. ${q[0].label} → ${answers[0]}\n2. ${q[1].label} → ${answers[1]}\n3. ${q[2].label} → ${answers[2]}\n\nこの内容を踏まえ、互いに異なる3つの戦略的方向性を提案してください。必ず次のJSON形式のみで出力してください。\n{\n  "strategies": [\n    {"tag":"英大文字とハイフンで構成される短いタグ（例: GROWTH-LED）", "title":"戦略の日本語タイトル（15文字前後）", "summary":"1文でその戦略の狙いを説明", "points":["中心課題：...","変えたい行動または認識：...","KPI：..."]}\n  ]\n}\nstrategiesは必ず3件にしてください。それぞれ異なる切り口（例：行動変容中心、ブランド認識中心、関係性・エコシステム中心など）にしてください。`;
+    const sys = 'あなたは経験豊富なマーケティング戦略ディレクターです。同じ課題に対して、あえて緊張関係のある3つの戦略案を提示します。1つの「正解」に収束させることより、性格の異なる選択肢を並べてユーザー自身に選ばせることを重視します。出力は必ず有効なJSONのみとし、説明文やバッククォートは一切含めないでください。';
+    const user = `プロジェクトの背景:\n${contextBlock()}\n\n入力内容:\n${val('rawInput')}\n\n診断結果のスコア: ${state.diagnosis.score}\n主な診断内容: ${state.diagnosis.findings.map(f=>f.title+'：'+f.desc).join(' / ')}\n\nAIの3つの問いへの回答:\n1. ${q[0].label} → ${answers[0]}\n2. ${q[1].label} → ${answers[1]}\n3. ${q[2].label} → ${answers[2]}\n\nこの内容を踏まえ、必ず以下の3つの役割で、それぞれ1つずつ戦略的方向性を提案してください。役割の省略・順番の入れ替えはしないでください。\n\n1. 王道（Orthodox）：入力された目的にそのまま従う、最も手堅く合意形成しやすい戦略。\n2. エッジ（Edge）：目的は維持しつつ、切り口・ターゲット・角度を尖らせた戦略。無難さを避ける。\n3. ワイルドカード（Reframe）：「本当に解くべき問題はそこか？」と前提そのものを疑い、目的や課題設定自体を問い直す戦略。安全に倒れないこと。\n\n必ず次のJSON形式のみで出力してください。\n{\n  "strategies": [\n    {"role":"王道", "tag":"英大文字とハイフンで構成される短いタグ（例: GROWTH-LED）", "title":"戦略の日本語タイトル（15文字前後）", "summary":"1文でその戦略の狙いを説明", "points":["中心課題：...","変えたい行動または認識：...","KPI：..."]},\n    {"role":"エッジ", "tag":"...", "title":"...", "summary":"...", "points":["...","...","..."]},\n    {"role":"ワイルドカード", "tag":"...", "title":"...", "summary":"...", "points":["...","...","..."]}\n  ]\n}`;
     const text = await callAI(sys, user);
     const data = parseJSON(text);
     return data.strategies;
@@ -454,14 +465,18 @@
   function renderStrategies(list){
     state.strategies = list;
     state.selectedStrategyIndex = 0;
-    document.getElementById('strategyGrid').innerHTML = list.map((s,i)=>`
-      <div class="card strategy${i===0?' selected':''}" data-index="${i}">
+    document.getElementById('strategyGrid').innerHTML = list.map((s,i)=>{
+      const meta = ROLE_META[s.role] || { cls:'orthodox', label: s.role || '' };
+      return `
+      <div class="card strategy${i===0?' selected':''}${meta.cls==='wildcard'?' wildcard':''}" data-index="${i}">
+        <span class="role-badge ${meta.cls}">${escapeHtml(meta.label)}</span>
         <div class="num">${String(i+1).padStart(2,'0')} / ${escapeHtml(s.tag)}</div>
         <h3>${escapeHtml(s.title)}</h3>
         <p>${escapeHtml(s.summary)}</p>
         <ul>${s.points.map(p=>`<li>${escapeHtml(p)}</li>`).join('')}</ul>
       </div>
-    `).join('');
+    `;
+    }).join('');
   }
 
   document.getElementById('strategyGrid').addEventListener('click', e=>{
@@ -490,16 +505,19 @@
   // ---------- Step 4: council ----------
   async function generateCouncil(){
     const s = state.strategies[state.selectedStrategyIndex];
-    const sys = 'あなたは5名の専門家（Growth CMO、Consumer、Creative Director、Effectiveness＝計測責任者、Red Team＝批判的視点の担当者）からなるレビュー会議をシミュレートします。それぞれの専門性から見た鋭いコメントを、日本語で簡潔に述べてください。出力は必ず有効なJSONのみとし、説明文やバッククォートは一切含めないでください。';
-    const user = `プロジェクトの背景:\n${contextBlock()}\n\n入力内容:\n${val('rawInput')}\n\n選ばれた戦略:\nタイトル: ${s.title}\n概要: ${s.summary}\n詳細: ${s.points.join(' / ')}\n\nこの戦略に対して、5名それぞれの視点から1〜2文のコメントを出してください。必ず次のJSON形式のみで出力してください。\n{\n  "personas": [\n    {"icon":"CMO","role":"Growth CMO","quote":"..."},\n    {"icon":"CX","role":"Consumer","quote":"..."},\n    {"icon":"CD","role":"Creative","quote":"..."},\n    {"icon":"FX","role":"Effectiveness","quote":"..."},\n    {"icon":"!","role":"Red Team","quote":"..."}\n  ],\n  "consensus":"5名の意見を踏まえた合意点を2〜3文で要約"\n}`;
+    const sys = 'あなたは5名の専門家（Growth CMO、Consumer、Creative Director、Effectiveness＝計測責任者、Red Team＝批判的視点の担当者）からなるレビュー会議をシミュレートします。それぞれの専門性から見た鋭いコメントを、日本語で簡潔に述べてください。全員が無条件に同意する出力は禁止です。少なくとも1名は、他の誰かの発言に名指しで異論・反論を述べてください（例：CMOの成長偏重をEffectivenessが指摘する、Red Teamが全員の前提を疑う、など）。出力は必ず有効なJSONのみとし、説明文やバッククォートは一切含めないでください。';
+    const user = `プロジェクトの背景:\n${contextBlock()}\n\n入力内容:\n${val('rawInput')}\n\n選ばれた戦略:\nタイトル: ${s.title}\n概要: ${s.summary}\n詳細: ${s.points.join(' / ')}\n\nこの戦略に対して、5名それぞれの視点から1〜2文のコメントを出してください。少なくとも1件には、他のロール名を名指しした反論を含めてください。必ず次のJSON形式のみで出力してください。\n{\n  "personas": [\n    {"icon":"CMO","role":"Growth CMO","quote":"...","pushback":"反論している相手のroleをそのまま入れる。反論がなければ空文字"},\n    {"icon":"CX","role":"Consumer","quote":"...","pushback":""},\n    {"icon":"CD","role":"Creative","quote":"...","pushback":""},\n    {"icon":"FX","role":"Effectiveness","quote":"...","pushback":""},\n    {"icon":"!","role":"Red Team","quote":"...","pushback":""}\n  ],\n  "consensus":"5名の意見を踏まえた合意点を2〜3文で要約"\n}`;
     const text = await callAI(sys, user);
     return parseJSON(text);
   }
 
   function renderCouncil(c){
-    document.getElementById('councilGrid').innerHTML = c.personas.map(p=>`
-      <div class="card persona"><div class="icon">${escapeHtml(p.icon)}</div><h3>${escapeHtml(p.role)}</h3><div class="quote">${escapeHtml(p.quote)}</div></div>
-    `).join('');
+    document.getElementById('councilGrid').innerHTML = c.personas.map(p=>{
+      const pushbackHTML = p.pushback ? `<div class="pushback-chip">↔ ${escapeHtml(p.pushback)}に反論</div>` : '';
+      return `
+      <div class="card persona"><div class="icon">${escapeHtml(p.icon)}</div><h3>${escapeHtml(p.role)}</h3><div class="quote">${escapeHtml(p.quote)}</div>${pushbackHTML}</div>
+    `;
+    }).join('');
     document.getElementById('consensusText').textContent = c.consensus;
   }
 
