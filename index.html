@@ -142,7 +142,7 @@
     <section id="input" class="screen active">
       <div class="topbar">
         <div><div class="eyebrow">Step 1</div><h2>プロジェクトの素材を入れる</h2><div class="sub">整った文章でなくて構いません。会議メモ、依頼メール、調査結果、思いつきなどをそのまま入力してください。</div></div>
-        <div class="actions"><button class="btn ghost" id="loadSample">サンプルを読み込む</button><button class="btn primary" id="runDiagnosis">診断する</button></div>
+        <div class="actions"><button class="btn ghost" id="resetProject">最初からやり直す</button><button class="btn ghost" id="loadSample">サンプルを読み込む</button><button class="btn primary" id="runDiagnosis">診断する</button></div>
       </div>
       <div class="grid two">
         <div class="card">
@@ -221,12 +221,14 @@
   // ---------- navigation ----------
   const navButtons = document.querySelectorAll('nav button');
   const screens = document.querySelectorAll('.screen');
+  let currentScreenId = 'input';
   function showScreen(id){
+    currentScreenId = id;
     screens.forEach(s=>s.classList.toggle('active', s.id===id));
     navButtons.forEach(b=>b.classList.toggle('active', b.dataset.screen===id));
     window.scrollTo({top:0,behavior:'smooth'});
   }
-  navButtons.forEach(b=>b.addEventListener('click',()=>showScreen(b.dataset.screen)));
+  navButtons.forEach(b=>b.addEventListener('click',()=>{ showScreen(b.dataset.screen); saveState(); }));
 
   function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); }
   function escapeHtml(str){
@@ -236,6 +238,30 @@
 
   // ---------- app state ----------
   const state = { diagnosis:null, strategies:null, selectedStrategyIndex:0, council:null, final:null };
+
+  // ---------- persistence ----------
+  const STORAGE_KEY = 'bc_project_state';
+  function saveState(){
+    const data = {
+      rawInput: val('rawInput'),
+      projectName: val('projectName'),
+      productName: val('productName'),
+      businessOutcome: val('businessOutcome'),
+      timing: val('timing'),
+      diagnosis: state.diagnosis,
+      diagAnswers: state.diagnosis ? [0,1,2].map(i=>{
+        const sel = document.querySelector(`#diagQuestions select[data-qindex="${i}"]`);
+        return sel ? sel.value : '';
+      }) : null,
+      strategies: state.strategies,
+      selectedStrategyIndex: state.selectedStrategyIndex,
+      council: state.council,
+      final: state.final,
+      currentScreenId,
+      savedAt: new Date().toISOString()
+    };
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }catch(err){ console.error(err); }
+  }
 
   // ---------- AI settings (multi-model) ----------
   const MODEL_OPTIONS = {
@@ -392,6 +418,7 @@
         renderDiagnosis(d);
       });
       showScreen('diagnosis');
+      saveState();
     }catch(err){ /* handled in withLoading */ }
   });
 
@@ -400,6 +427,14 @@
     document.getElementById('projectName').value='Pocket Coach グロース 2026';
     document.getElementById('productName').value='習慣化コーチングアプリ「Pocket Coach」';
     document.getElementById('timing').value='2026年9月〜12月';
+    saveState();
+  });
+
+  ['rawInput','projectName','productName','businessOutcome','timing'].forEach(id=>{
+    document.getElementById(id).addEventListener('change', saveState);
+  });
+  document.getElementById('diagQuestions').addEventListener('change', e=>{
+    if(e.target.matches('select')) saveState();
   });
 
   // ---------- Step 3: strategic choices ----------
@@ -435,6 +470,7 @@
     document.querySelectorAll('#strategyGrid .strategy').forEach(c=>c.classList.remove('selected'));
     card.classList.add('selected');
     state.selectedStrategyIndex = Number(card.dataset.index);
+    saveState();
   });
 
   async function goToStrategies(btn){
@@ -445,6 +481,7 @@
         renderStrategies(list);
       });
       showScreen('choices');
+      saveState();
     }catch(err){ /* handled */ }
   }
   document.getElementById('toStrategiesBtn').addEventListener('click', e=>goToStrategies(e.currentTarget));
@@ -476,6 +513,7 @@
         renderCouncil(c);
       });
       showScreen('council');
+      saveState();
     }catch(err){ /* handled */ }
   });
 
@@ -534,6 +572,7 @@
         renderFinal(f);
       });
       showScreen('final');
+      saveState();
     }catch(err){ /* handled */ }
   });
 
@@ -551,6 +590,84 @@
     URL.revokeObjectURL(url);
     toast('Markdownを保存しました');
   });
+
+  // ---------- reset ----------
+  const EMPTY_FINDINGS_HTML = '<p style="color:var(--muted);">Step 1 で入力し「診断する」を押すとここに表示されます。</p>';
+  const EMPTY_QUESTIONS_HTML = '<p style="color:var(--muted);">診断が完了すると、ここに質問が表示されます。</p>';
+  const EMPTY_STRATEGY_HTML = '<p style="color:var(--muted);">Step 2 で「回答を反映する」を押すと、ここに3つの戦略案が表示されます。</p>';
+  const EMPTY_COUNCIL_HTML = '<p style="color:var(--muted);">Step 3 で「Councilにかける」を押すと、5名のレビューが表示されます。</p>';
+  const EMPTY_BRIEF_HTML = '<p style="color:var(--muted);">Step 4 で「最終化する」を押すと、ここにブリーフが表示されます。</p>';
+  const EMPTY_SCORE_HTML = '<p style="color:var(--muted);">ブリーフ生成後にスコアが表示されます。</p>';
+
+  document.getElementById('resetProject').addEventListener('click', ()=>{
+    if(!confirm('保存された内容をすべて消去して、最初からやり直しますか？')) return;
+    try{ localStorage.removeItem(STORAGE_KEY); }catch(err){ /* noop */ }
+    document.getElementById('rawInput').value = '';
+    document.getElementById('projectName').value = '';
+    document.getElementById('productName').value = '';
+    document.getElementById('businessOutcome').selectedIndex = 0;
+    document.getElementById('timing').value = '';
+    state.diagnosis = null; state.strategies = null; state.selectedStrategyIndex = 0; state.council = null; state.final = null;
+    document.getElementById('diagScoreNum').textContent = '–';
+    document.getElementById('diagBar').style.width = '0%';
+    document.getElementById('diagFindings').innerHTML = EMPTY_FINDINGS_HTML;
+    document.getElementById('diagQuestions').innerHTML = EMPTY_QUESTIONS_HTML;
+    document.getElementById('strategyGrid').innerHTML = EMPTY_STRATEGY_HTML;
+    document.getElementById('councilGrid').innerHTML = EMPTY_COUNCIL_HTML;
+    document.getElementById('consensusText').textContent = 'まだ生成されていません。';
+    document.getElementById('briefView').innerHTML = EMPTY_BRIEF_HTML;
+    document.getElementById('scoreRows').innerHTML = EMPTY_SCORE_HTML;
+    showScreen('input');
+    toast('新しいブリーフを開始しました');
+  });
+
+  // ---------- restore on load ----------
+  function loadState(){
+    let raw;
+    try{ raw = localStorage.getItem(STORAGE_KEY); }catch(err){ return; }
+    if(!raw) return;
+    let data;
+    try{ data = JSON.parse(raw); }catch(err){ return; }
+
+    if(data.rawInput) document.getElementById('rawInput').value = data.rawInput;
+    if(data.projectName) document.getElementById('projectName').value = data.projectName;
+    if(data.productName) document.getElementById('productName').value = data.productName;
+    if(data.businessOutcome) document.getElementById('businessOutcome').value = data.businessOutcome;
+    if(data.timing) document.getElementById('timing').value = data.timing;
+
+    if(data.diagnosis){
+      state.diagnosis = data.diagnosis;
+      renderDiagnosis(data.diagnosis);
+      if(Array.isArray(data.diagAnswers)){
+        data.diagAnswers.forEach((ans,i)=>{
+          const sel = document.querySelector(`#diagQuestions select[data-qindex="${i}"]`);
+          if(sel && ans) sel.value = ans;
+        });
+      }
+    }
+    if(data.strategies){
+      renderStrategies(data.strategies);
+      if(typeof data.selectedStrategyIndex === 'number'){
+        state.selectedStrategyIndex = data.selectedStrategyIndex;
+        document.querySelectorAll('#strategyGrid .strategy').forEach(c=>{
+          c.classList.toggle('selected', Number(c.dataset.index)===data.selectedStrategyIndex);
+        });
+      }
+    }
+    if(data.council){
+      state.council = data.council;
+      renderCouncil(data.council);
+    }
+    if(data.final){
+      state.final = data.final;
+      renderFinal(data.final);
+    }
+    if(data.currentScreenId) showScreen(data.currentScreenId);
+    if(data.diagnosis || data.strategies || data.council || data.final){
+      toast('前回の続きを復元しました');
+    }
+  }
+  loadState();
 </script>
 </body>
 </html>
